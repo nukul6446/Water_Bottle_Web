@@ -7,19 +7,40 @@ const Contact = require("../models/Contact.js");
 
 // ─────────────────────────────────────────────────────────────
 // NODEMAILER TRANSPORTER
+// Using service: "gmail" is correct for Gmail
+// Do NOT use host/port/secure/tls for Gmail — it causes
+// authentication errors on deployed servers
 // ─────────────────────────────────────────────────────────────
 
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: Number(process.env.SMTP_PORT) === 465,
+  service: "gmail",
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
-  tls: {
-    rejectUnauthorized: false,
-  },
+});
+
+// ─────────────────────────────────────────────────────────────
+// VERIFY SMTP ON STARTUP
+// Check Render logs after deploy to confirm email works
+// ─────────────────────────────────────────────────────────────
+
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("❌ SMTP connection failed:", error.message);
+    console.error(
+      "   SMTP_USER:",
+      process.env.SMTP_USER || "NOT SET"
+    );
+    console.error(
+      "   SMTP_PASS:",
+      process.env.SMTP_PASS ? "SET" : "NOT SET"
+    );
+  } else {
+    console.log(
+      "✅ SMTP ready — emails will send correctly"
+    );
+  }
 });
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
@@ -34,7 +55,9 @@ const contactValidation = [
     .notEmpty()
     .withMessage("Full name is required")
     .isLength({ min: 2, max: 100 })
-    .withMessage("Full name must be between 2 and 100 characters"),
+    .withMessage(
+      "Full name must be between 2 and 100 characters"
+    ),
 
   body("phone")
     .trim()
@@ -66,9 +89,9 @@ const contactValidation = [
 
 router.post("/", contactValidation, async (req, res) => {
   try {
-    // ─────────────────────────────────────────────────────────
-    // DEBUG LOG - shows exactly what the server received
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
+    // DEBUG LOG
+    // ─────────────────────────────────────────────────────
 
     console.log("=== CONTACT POST DEBUG ===");
     console.log(
@@ -81,9 +104,9 @@ router.post("/", contactValidation, async (req, res) => {
     );
     console.log("==========================");
 
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
     // VALIDATION CHECK
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
 
     const errors = validationResult(req);
 
@@ -102,9 +125,9 @@ router.post("/", contactValidation, async (req, res) => {
       });
     }
 
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
     // EXTRACT FIELDS
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
 
     const fullName = req.body.fullName.trim();
     const phone = req.body.phone.trim();
@@ -116,9 +139,9 @@ router.post("/", contactValidation, async (req, res) => {
     console.log("📩 New contact enquiry received:");
     console.log({ fullName, phone, email, message });
 
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
     // DATABASE CONNECTION CHECK
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
 
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
@@ -128,9 +151,10 @@ router.post("/", contactValidation, async (req, res) => {
       });
     }
 
-    // ─────────────────────────────────────────────────────────
-    // RATE LIMIT - one submission per email every 5 minutes
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
+    // RATE LIMIT
+    // One submission per email every 5 minutes
+    // ─────────────────────────────────────────────────────
 
     const fiveMinutesAgo = new Date(
       Date.now() - 5 * 60 * 1000
@@ -149,9 +173,9 @@ router.post("/", contactValidation, async (req, res) => {
       });
     }
 
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
     // SAVE TO MONGODB
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
 
     const contact = new Contact({
       fullName,
@@ -162,11 +186,24 @@ router.post("/", contactValidation, async (req, res) => {
 
     await contact.save();
 
-    console.log(`✅ Contact saved to DB: ${contact._id}`);
+    console.log(
+      `✅ Contact saved to DB: ${contact._id}`
+    );
 
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
     // SEND EMAIL TO ADMIN
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
+
+    console.log("📧 Attempting to send admin email...");
+    console.log("   ADMIN_EMAIL:", ADMIN_EMAIL || "NOT SET");
+    console.log(
+      "   SMTP_USER:",
+      process.env.SMTP_USER || "NOT SET"
+    );
+    console.log(
+      "   SMTP_PASS:",
+      process.env.SMTP_PASS ? "SET ✅" : "NOT SET ❌"
+    );
 
     if (
       ADMIN_EMAIL &&
@@ -174,7 +211,7 @@ router.post("/", contactValidation, async (req, res) => {
       process.env.SMTP_PASS
     ) {
       try {
-        await transporter.sendMail({
+        const mailResult = await transporter.sendMail({
           from: `"Jambooneer Website" <${process.env.SMTP_USER}>`,
           to: ADMIN_EMAIL,
           subject: `New Enquiry from ${fullName}`,
@@ -336,23 +373,46 @@ Time       : ${new Date().toLocaleString("en-IN")}
           `,
         });
 
-        console.log("📧 Admin email sent successfully");
+        console.log(
+          "📧 Admin email sent successfully to:",
+          ADMIN_EMAIL
+        );
+        console.log(
+          "   Message ID:",
+          mailResult.messageId
+        );
       } catch (emailError) {
         // Email failure does NOT undo the saved enquiry
         console.error(
-          "[Admin Email Error]",
+          "❌ [Admin Email Error]:",
           emailError.message
+        );
+        console.error(
+          "   Full error:",
+          emailError
         );
       }
     } else {
       console.log(
-        "⚠️  Admin email skipped - SMTP credentials not configured"
+        "⚠️  Admin email skipped - missing credentials:"
+      );
+      console.log(
+        "   ADMIN_EMAIL:",
+        ADMIN_EMAIL ? "✅" : "❌ NOT SET"
+      );
+      console.log(
+        "   SMTP_USER:",
+        process.env.SMTP_USER ? "✅" : "❌ NOT SET"
+      );
+      console.log(
+        "   SMTP_PASS:",
+        process.env.SMTP_PASS ? "✅" : "❌ NOT SET"
       );
     }
 
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
     // SUCCESS RESPONSE
-    // ─────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────
 
     return res.status(201).json({
       success: true,
@@ -380,7 +440,10 @@ router.get("/", async (req, res) => {
   try {
     const { status, page = 1, limit = 50 } = req.query;
 
-    const currentPage = Math.max(parseInt(page) || 1, 1);
+    const currentPage = Math.max(
+      parseInt(page) || 1,
+      1
+    );
 
     const currentLimit = Math.min(
       Math.max(parseInt(limit) || 50, 1),
@@ -394,7 +457,8 @@ router.get("/", async (req, res) => {
       .skip((currentPage - 1) * currentLimit)
       .limit(currentLimit);
 
-    const total = await Contact.countDocuments(filter);
+    const total =
+      await Contact.countDocuments(filter);
 
     return res.json({
       success: true,
